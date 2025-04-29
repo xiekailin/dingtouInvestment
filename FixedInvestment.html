@@ -236,7 +236,8 @@
             <button id="saveBtn">保存记录</button>
             <button id="clearBtn" class="danger">清空所有记录</button>
             <button id="exportBtn" class="secondary">导出数据</button>
-            <button id="importBtn" class="secondary">导入数据</button>
+            <button id="importBtn" class="secondary">导入文件</button>
+            <button id="importJsonBtn" class="secondary">导入JSON文本</button>
         </div>
         
         <div class="price-container">
@@ -367,6 +368,28 @@
                 <input type="hidden" id="editRecordIndex">
             </div>
         </div>
+        
+        <!-- JSON导入的弹窗 -->
+        <div id="importJsonModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">导入JSON数据</h3>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="modal-form">
+                    <div class="form-group">
+                        <label for="jsonInput">请粘贴JSON数据</label>
+                        <textarea id="jsonInput" rows="10" style="width: 100%; resize: vertical;" placeholder="在此粘贴JSON数据..."></textarea>
+                    </div>
+                    <div id="jsonError" style="color: red; margin-top: 10px; display: none;"></div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="cancelJsonImportBtn" class="danger">取消</button>
+                    <button id="importAsNewBtn" class="secondary">添加为新记录</button>
+                    <button id="replaceAllBtn">替换所有记录</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -379,6 +402,7 @@
         const clearBtn = document.getElementById('clearBtn');
         const exportBtn = document.getElementById('exportBtn');
         const importBtn = document.getElementById('importBtn');
+        const importJsonBtn = document.getElementById('importJsonBtn');
         const importFile = document.getElementById('importFile');
         const refreshPriceBtn = document.getElementById('refreshPrice');
         const getCurrentPriceBtn = document.getElementById('getCurrentPrice');
@@ -396,6 +420,15 @@
         const saveEditBtn = document.getElementById('saveEditBtn');
         const cancelEditBtn = document.getElementById('cancelEditBtn');
         const closeModalBtn = document.querySelector('#editRecordModal .close');
+        
+        // JSON导入弹窗相关元素
+        const importJsonModal = document.getElementById('importJsonModal');
+        const jsonInput = document.getElementById('jsonInput');
+        const jsonError = document.getElementById('jsonError');
+        const cancelJsonImportBtn = document.getElementById('cancelJsonImportBtn');
+        const importAsNewBtn = document.getElementById('importAsNewBtn');
+        const replaceAllBtn = document.getElementById('replaceAllBtn');
+        const closeJsonModalBtn = document.querySelector('#importJsonModal .close');
         
         // 设置当前日期时间为默认值
         const now = new Date();
@@ -842,15 +875,32 @@
             }
             
             const dataStr = JSON.stringify(records, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
             
-            const a = document.createElement('a');
-            a.setAttribute('href', url);
-            a.setAttribute('download', 'btc_investment_records.json');
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            // 询问用户选择导出方式
+            const exportMethod = confirm('选择导出方式:\n - 点击"确定"将数据保存为文件\n - 点击"取消"将数据复制到剪贴板');
+            
+            if (exportMethod) {
+                // 保存为文件
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.setAttribute('href', url);
+                a.setAttribute('download', 'btc_investment_records.json');
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } else {
+                // 复制到剪贴板
+                navigator.clipboard.writeText(dataStr)
+                    .then(() => {
+                        alert('数据已复制到剪贴板！');
+                    })
+                    .catch(err => {
+                        console.error('复制失败:', err);
+                        alert('复制失败，请手动复制:\n\n' + dataStr);
+                    });
+            }
         });
         
         // 导入数据
@@ -858,6 +908,7 @@
             importFile.click();
         });
         
+        // 文件导入处理
         importFile.addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (!file) return;
@@ -890,6 +941,126 @@
                 importFile.value = '';
             };
             reader.readAsText(file);
+        });
+        
+        // 打开JSON导入弹窗
+        importJsonBtn.addEventListener('click', () => {
+            jsonInput.value = '';
+            jsonError.style.display = 'none';
+            importJsonModal.style.display = 'block';
+        });
+        
+        // 关闭JSON导入弹窗
+        function closeJsonImportModal() {
+            importJsonModal.style.display = 'none';
+        }
+        
+        // JSON导入弹窗关闭按钮
+        cancelJsonImportBtn.addEventListener('click', closeJsonImportModal);
+        closeJsonModalBtn.addEventListener('click', closeJsonImportModal);
+        
+        // 点击弹窗外部关闭弹窗
+        window.addEventListener('click', (event) => {
+            if (event.target === editModal) {
+                closeEditModal();
+            } else if (event.target === importJsonModal) {
+                closeJsonImportModal();
+            }
+        });
+        
+        // 验证JSON数据
+        function validateJsonData(jsonString) {
+            try {
+                const data = JSON.parse(jsonString);
+                
+                // 验证是否为数组
+                if (!Array.isArray(data)) {
+                    return { isValid: false, error: '数据格式错误：应该是记录数组' };
+                }
+                
+                // 验证数组内的记录格式
+                for (let i = 0; i < data.length; i++) {
+                    const record = data[i];
+                    if (!record.date || !record.amount || !record.btcPrice) {
+                        return { isValid: false, error: `第${i+1}条记录缺少必要字段(date, amount, btcPrice)` };
+                    }
+                    
+                    if (isNaN(parseFloat(record.amount)) || isNaN(parseFloat(record.btcPrice))) {
+                        return { isValid: false, error: `第${i+1}条记录的金额或价格不是有效数字` };
+                    }
+                }
+                
+                return { isValid: true, data: data };
+            } catch (error) {
+                return { isValid: false, error: '无效的JSON格式: ' + error.message };
+            }
+        }
+        
+        // 处理JSON导入
+        function processJsonImport(importedRecords, replace) {
+            if (replace) {
+                // 替换所有记录
+                records = importedRecords;
+            } else {
+                // 添加为新记录
+                records = records.concat(importedRecords);
+            }
+            
+            // 保存到localStorage
+            localStorage.setItem('investmentRecords', JSON.stringify(records));
+            
+            // 更新显示
+            displayRecords();
+            
+            // 更新图表
+            updateAllCharts();
+            
+            // 关闭弹窗
+            closeJsonImportModal();
+            
+            // 显示成功消息
+            const action = replace ? '替换' : '添加';
+            alert(`成功${action}了 ${importedRecords.length} 条记录！`);
+        }
+        
+        // 添加为新记录
+        importAsNewBtn.addEventListener('click', () => {
+            const jsonString = jsonInput.value.trim();
+            if (!jsonString) {
+                jsonError.textContent = '请输入JSON数据';
+                jsonError.style.display = 'block';
+                return;
+            }
+            
+            const validation = validateJsonData(jsonString);
+            if (!validation.isValid) {
+                jsonError.textContent = validation.error;
+                jsonError.style.display = 'block';
+                return;
+            }
+            
+            processJsonImport(validation.data, false);
+        });
+        
+        // 替换所有记录
+        replaceAllBtn.addEventListener('click', () => {
+            const jsonString = jsonInput.value.trim();
+            if (!jsonString) {
+                jsonError.textContent = '请输入JSON数据';
+                jsonError.style.display = 'block';
+                return;
+            }
+            
+            const validation = validateJsonData(jsonString);
+            if (!validation.isValid) {
+                jsonError.textContent = validation.error;
+                jsonError.style.display = 'block';
+                return;
+            }
+            
+            if (confirm(`确定要用导入的${validation.data.length}条记录替换当前所有记录吗？此操作不可恢复！`)) {
+                processJsonImport(validation.data, true);
+            }
         });
         
         // 打开编辑记录的弹窗
@@ -975,13 +1146,6 @@
         saveEditBtn.addEventListener('click', saveEditedRecord);
         cancelEditBtn.addEventListener('click', closeEditModal);
         closeModalBtn.addEventListener('click', closeEditModal);
-        
-        // 点击弹窗外部关闭弹窗
-        window.addEventListener('click', (event) => {
-            if (event.target === editModal) {
-                closeEditModal();
-            }
-        });
         
         // 页面加载时初始化
         window.addEventListener('DOMContentLoaded', async () => {
